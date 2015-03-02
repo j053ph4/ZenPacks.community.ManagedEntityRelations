@@ -1,0 +1,3 @@
+[zenoss.zenpacks]
+ZenPacks.community.ManagedEntityRelations = ZenPacks.community.ManagedEntityRelations
+

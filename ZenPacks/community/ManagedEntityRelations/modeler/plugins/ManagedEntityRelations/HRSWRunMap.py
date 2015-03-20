@@ -2,6 +2,8 @@ import re
 from Products.DataCollector.plugins.CollectorPlugin import SnmpPlugin
 from Products.DataCollector.plugins.CollectorPlugin import GetTableMap
 from Products.ZenModel.OSProcessMatcher import buildObjectMapData
+from Products.DataCollector.plugins.DataMaps import ObjectMap, MultiArgs
+
 
 __doc__ = """HRSWRunMap
 
@@ -39,14 +41,69 @@ class HRSWRunMap(SnmpPlugin):
                         GetTableMap('tcpListenerEntry', TCPLISTENERENTRY, TCPcolumns),
                      )
     
+    procMaps = {}
+    
     def _extractProcessText(self, proc, log):
-        ''''''
+        '''return string for zenoss process name'''
         path = proc.get('_procPath','').strip()
         if path and path.find('\\') == -1: name = path
         else: name = proc.get('_procName','').strip()
         if name: return (name + ' ' + proc.get('_parameters','').strip()).rstrip()
         else: log.warn("Skipping process with no name")
         return None
+    
+    def portToPidMap(self, porttable, pidtable, log):
+        '''return map of PIDs to ports'''
+        # process TCP/UDP Port data
+        output = {}
+        log.debug("===TCP Port information received ===")
+        pidmap = {}
+        try:
+            for p in sorted(porttable.keys()):
+                val = porttable[p]
+                pid = int(val['_localPID'])
+                if pid not in pidmap.keys():  pidmap[pid] = []
+                port = p.split('.')[-1]
+                pidmap[pid].append(port)
+        except:  pass
+        log.debug("=== Process information received ===")
+        # associate the PID with open ports
+        for p in sorted(pidtable.keys()):
+            val = pidtable[p]
+            if '_procPID' in val.keys():
+                pid = int(val['_procPID'])
+                if 'port' not in val.keys(): val['port'] = []
+                if pid in pidmap.keys(): val['port'] = pidmap[pid]
+            # this is for attempting to match process to a filesystem path
+            if '_procPath' in val.keys(): val['mount'] = self.parsePath(val['_procPath'])
+        return pidtable
+    
+    def parsePath(self, path):
+        '''try to get the path to the filesystem'''
+        output = '/'
+        if path.startswith('/'):
+            output = ('/').join(path.split('/')[:-1])
+        return output
+    
+    def parseResults(self, device, porttable, pidtable, log):
+        ''''''
+        # update the dictionary
+        pidtable = self.portToPidMap(porttable, pidtable, log)
+        matchData = device.osProcessClassMatchData
+        output = {}
+        for x in pidtable.values():
+            log.debug("X: %s" % x)
+            cmd = self._extractProcessText(x, log)
+            if cmd is None: continue
+            data = buildObjectMapData(matchData, [cmd])
+            # skip if there are no results
+            if len(data) < 1: continue
+            for d in data:
+                id = d['id']
+                if id not in output.keys():  output[id] = d
+                if 'port' not in d.keys():  d['port'] = []
+                d['port'] += x['port']
+        return output
     
     def process(self, device, results, log):
         """
@@ -59,60 +116,23 @@ class HRSWRunMap(SnmpPlugin):
         # get the SNMP process data
         pidtable = tabledata.get("hrSWRunEntry")
         if pidtable is None:
-            log.error("Unable to get data for %s from hrSWRunEntry %s"
-                          " -- skipping model", HRSWRUNENTRY, device.id)
+            log.error("Unable to get data for %s from hrSWRunEntry %s -- skipping model", HRSWRUNENTRY, device.id)
             return None
         if not pidtable.values():
             log.warning("No process information from hrSWRunEntry %s", HRSWRUNENTRY)
             return None
         
-        # process TCP/UDP Port data
-        log.debug("===TCP Port information received ===")
-        pidmap = {}
-        try:
-            for p in sorted(porttable.keys()):
-                log.debug("snmpidx: %s\tport: %s" % (p, porttable[p]))
-                port = p.split('.')[-1]
-                pid = int(porttable[p]['_localPID'])
-                if pid not in pidmap.keys():  pidmap[pid] = []
-                pidmap[pid].append(port)
-            log.debug("pidmap: %s" % pidmap)
-        except:  pass
-        log.debug("=== Process information received ===")
-        # associate the PID with open ports
-        for p in sorted(pidtable.keys()):
-            # get the pid
-            try: 
-                ppid = int(pidtable[p]['_procPID'])
-                log.debug("processing PID: %s" % ppid)
-            except: pass
-            try: pidtable[p]['port'] = pidmap[ppid]
-            except: pidtable[p]['port'] = []
-            # path name
-            # this is for attempting to match process to filesystem
-            try: pidtable[p]['mount'] = pidtable[p]['_procPath'].replace(pidtable[p]['_procName'],'')
-            except: pidtable[p]['mount'] = ''
-            log.debug("snmpidx: %s\tprocess: %s" % (p, pidtable[p]))
-        
         rm = self.relMap()
-        matchData = device.osProcessClassMatchData
-        
-        #objects = []
-        objects = {}
-        for x in pidtable.values():
-            cmd = self._extractProcessText(x, log)
-            if cmd is None: continue
-            data = buildObjectMapData(matchData, [cmd])
-            if len(data) <= 0: continue
-            for d in data:
-                if 'port' not in d.keys():  d['port'] = []
-                if d['id'] not in objects.keys():  objects[d['id']] = d
-                d['port'] += x['port']
-                #if d not in objects:  objects.append(d)
+        objects = self.parseResults(device, porttable, pidtable, log)
         for o in objects.values():
             om = self.objectMap(o)
             om.setIpservice = ''
+            try:
+                prodKey = o['setOSProcessClass'].split('/')[-1].lower().capitalize()
+                om.setProductKey = MultiArgs(prodKey)
+            except: pass
             log.debug(om)
             rm.append(om)
         return rm
+
 

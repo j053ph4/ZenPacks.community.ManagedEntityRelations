@@ -1,0 +1,10 @@
+{
+    "EventDetailItem" : [
+        {
+            "name" : "Product Class",
+            "key" : "productClassKey",
+            "type" : 1
+        }
+    ]
+}
+

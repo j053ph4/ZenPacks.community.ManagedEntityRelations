@@ -15,7 +15,8 @@ from FunctionHelper import *
 mgr = RelationHelper()
 
 ''' 
-    add productClass relation to all components, service classes, and process classes
+    add productClass relation to all components, service classes, and process c
+    lasses
 '''
 #mgr.add( 'productClass', ToOne, "Products.ZenModel.ProductClass", None, 'serviceClasses', ToMany, "Products.ZenModel.ServiceClass" , None)
 #mgr.add( 'productClass', ToOne, "Products.ZenModel.ProductClass", None, 'processClasses', ToMany, "Products.ZenModel.OSProcessClass" , None)
@@ -67,12 +68,9 @@ mgr.add( 'ipservice', ToMany, 'Products.ZenModel.IpService', 'port', 'softwaredb
 mgr.install()
 
 
-OSComponent.parent_meta = 'OperatingSystem'
-
-
 from ZenPacks.community.RDBMS.DBSrvInst import DBSrvInst
-#def setIpService(ob, name=''): ob.setCustomRelation(ob.findDeviceComponent(ob.device(), 'IpService', 'port', ob.port), 'ipservice', 'softwaredbsrvinstances')
-#DBSrvInst.setIpService = setIpService
+def setIpService(ob, name=''): ob.setCustomRelation(ob.findDeviceComponent(ob.device(), 'IpService', 'port', ob.port), 'ipservice', 'softwaredbsrvinstances')
+DBSrvInst.setIpService = setIpService
 
 def setProductKey2(ob, prodKey, manufacturer=None):
     '''Set the product class of this software by its productKey.
